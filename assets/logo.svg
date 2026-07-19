@@ -26,14 +26,14 @@
   <rect x="2" y="2" width="124" height="124" rx="26" fill="none" stroke="#71B417" stroke-width="2"/>
 
   <!-- spark -->
-  <g fill="#A8E63C">
+  <g fill="#A8E63C" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round">
     <path d="M96 18 L100 28 L110 32 L100 36 L96 46 L92 36 L82 32 L92 28 Z"/>
     <circle cx="78" cy="40" r="3"/>
     <circle cx="112" cy="44" r="2"/>
   </g>
 
   <!-- anvil -->
-  <path fill="#71B417" d="
+  <path fill="#71B417" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round" d="
     M 12 56
     C 24 48 36 46 50 46
     L 104 46
