@@ -265,7 +265,7 @@ async function main() {
   const objWithNewEvent = JSON.parse(await fs.readFile(path.join(dir, "objects/objTest/objTest.yy"), "utf8"));
   ok("addObjectEvent: event count grew from 2 to 3", objWithNewEvent.eventList.length === 3);
   ok("addObjectEvent: new event keys match real schema", keysMatchRef(objWithNewEvent.eventList[2], REF.objectEvent));
-  const newEventGml = await fs.readFile(path.join(dir, "objects/objTest/objTest_8_0.gml"), "utf8");
+  const newEventGml = await fs.readFile(path.join(dir, "objects/objTest/Draw_0.gml"), "utf8");
   ok("addObjectEvent: stub file has the given code", newEventGml.includes("custom draw code"));
   await expectThrows("addObjectEvent: rejects duplicate event", () => addObjectEvent(dir, "objTest", { eventType: 0, eventNum: 0 }));
   await expectThrows("addObjectEvent: rejects nonexistent object", () => addObjectEvent(dir, "objDoesNotExist", { eventType: 0, eventNum: 0 }));
@@ -279,6 +279,40 @@ async function main() {
     collisionEvent?.collisionObjectId?.name === "objTest" && collisionEvent?.collisionObjectId?.path === "objects/objTest/objTest.yy");
   await expectThrows("addObjectEvent: rejects a nonexistent collision target",
     () => addObjectEvent(dir, "objTest", { eventType: 4, eventNum: 1, collisionTargetName: "objDoesNotExist" }));
+
+  // --- Event code files must use GameMaker's real naming (Create_0.gml,
+  // Collision_<target>.gml) or GameMaker silently ignores them -- proven by
+  // an Igor A/B compile: invalid GML in a wrong-named file compiles
+  // "successfully", the same file under the real name fails. ---
+  ok("event files: Create_0.gml, not <obj>_0_0.gml", await fileExists(path.join(dir, "objects/objTest/Create_0.gml")));
+  ok("event files: Step_0.gml", await fileExists(path.join(dir, "objects/objTest/Step_0.gml")));
+  ok("event files: Draw_0.gml for the added draw event", await fileExists(path.join(dir, "objects/objTest/Draw_0.gml")));
+  ok("event files: collision file named after its target", await fileExists(path.join(dir, "objects/objTest/Collision_objTest.gml")));
+  ok("event files: legacy <obj>_<type>_<num>.gml never written", !(await fileExists(path.join(dir, "objects/objTest/objTest_0_0.gml"))));
+
+  // Collision events all share (type 4, num 0) legitimately, one per target
+  // -- only a duplicate TARGET is a real duplicate.
+  yyp = await loadYyp(dir);
+  yyp = await addObject(dir, yyp, "objOtherTarget", []);
+  await writeYyp(dir, yyp);
+  await addObjectEvent(dir, "objTest", { eventType: 4, eventNum: 0, collisionTargetName: "objOtherTarget" }, "// second collision\n");
+  ok("collision events: second event with a different target allowed", await fileExists(path.join(dir, "objects/objTest/Collision_objOtherTarget.gml")));
+  await expectThrows("collision events: same-target duplicate rejected",
+    () => addObjectEvent(dir, "objTest", { eventType: 4, eventNum: 0, collisionTargetName: "objOtherTarget" }));
+  await expectThrows("events: unknown eventType rejected", () => addObjectEvent(dir, "objTest", { eventType: 99, eventNum: 0 }));
+  await expectThrows("events: negative eventNum rejected", () => addObjectEvent(dir, "objTest", { eventType: 8, eventNum: -1 }));
+
+  // Renaming a collision TARGET must also rename Collision_<target>.gml in
+  // every OTHER object's directory -- the target's name is in the filename,
+  // not just the .yy content.
+  yyp = await loadYyp(dir);
+  yyp = await renameResource(dir, yyp, "objects", "objOtherTarget", "objOtherRenamed");
+  await writeYyp(dir, yyp);
+  ok("rename: external Collision_<target>.gml follows the target's rename",
+    (await fileExists(path.join(dir, "objects/objTest/Collision_objOtherRenamed.gml"))) &&
+    !(await fileExists(path.join(dir, "objects/objTest/Collision_objOtherTarget.gml"))));
+  const secondCollisionContent = await fs.readFile(path.join(dir, "objects/objTest/Collision_objOtherRenamed.gml"), "utf8");
+  ok("rename: renamed collision file keeps its code", secondCollisionContent.includes("second collision"));
 
   // --- Error messages distinguish "doesn't exist" from other real errors ---
   // Renaming a directory to look like the expected .yy path triggers EISDIR on
@@ -353,7 +387,7 @@ async function main() {
   const objInfo = await getObjectInfo(dir, "objTest");
   ok("getObjectInfo: reports correct name", objInfo.name === "objTest");
   ok("getObjectInfo: reports all events with human-readable names",
-    objInfo.events.length === 5 && objInfo.events[0].type === "Create" && objInfo.events[2].type === "Draw" && objInfo.events[3].type === "Collision",
+    objInfo.events.length === 6 && objInfo.events[0].type === "Create" && objInfo.events[2].type === "Draw" && objInfo.events[3].type === "Collision",
     JSON.stringify(objInfo.events));
   await expectThrows("getObjectInfo: rejects nonexistent object", () => getObjectInfo(dir, "objDoesNotExist"));
 
@@ -734,16 +768,16 @@ async function main() {
 
   const rollbackObjDir = path.join(dir, "objects/objRollbackTest");
   const rollbackYyPath = path.join(rollbackObjDir, "objRollbackTest.yy");
-  const rollbackEventPath = path.join(rollbackObjDir, "objRollbackTest_0_0.gml");
+  const rollbackEventPath = path.join(rollbackObjDir, "Create_0.gml");
   const rollbackRoomPath = path.join(dir, "rooms/rmRollbackHolder/rmRollbackHolder.yy");
   const originalYyContent = await fs.readFile(rollbackYyPath, "utf8");
   const originalEventContent = await fs.readFile(rollbackEventPath, "utf8");
   const originalRoomContent = await fs.readFile(rollbackRoomPath, "utf8");
 
-  // Conflicts with the rename target for the event stub file, forcing
+  // Conflicts with the rename target for the object's own .yy, forcing
   // fs.rename to throw partway through step 3 -- a directory (not a file)
   // sitting at the target path reliably fails a file-to-that-path rename.
-  await fs.mkdir(path.join(rollbackObjDir, "objRollbackNew_0_0.gml"), { recursive: true });
+  await fs.mkdir(path.join(rollbackObjDir, "objRollbackNew.yy"), { recursive: true });
 
   yyp = await loadYyp(dir);
   let rollbackThrew = false;
@@ -758,7 +792,7 @@ async function main() {
   ok("rename rollback: event stub content fully restored", await fs.readFile(rollbackEventPath, "utf8") === originalEventContent);
   ok("rename rollback: external room reference fully restored", await fs.readFile(rollbackRoomPath, "utf8") === originalRoomContent);
   ok("rename rollback: new directory was never left behind", !(await fileExists(path.join(dir, "objects/objRollbackNew"))));
-  await fs.rm(path.join(rollbackObjDir, "objRollbackNew_0_0.gml"), { recursive: true, force: true });
+  await fs.rm(path.join(rollbackObjDir, "objRollbackNew.yy"), { recursive: true, force: true });
 
   // Regression: renaming must NOT touch a coincidentally-matching "name"
   // field that isn't actually a reference to the resource -- only the
@@ -870,6 +904,20 @@ async function main() {
   yyp = await loadYyp(dir);
   yyp.resources = yyp.resources.filter((r: any) => !r.id?.path?.includes("objLintTarget") && !r.id?.path?.includes("rmLintHolder"));
   (yyp as any).RoomOrderNodes = ((yyp as any).RoomOrderNodes ?? []).filter((n: any) => n.roomId?.name !== "rmLintHolder");
+  await writeYyp(dir, yyp);
+
+  // Corrupt 1.5: event declared in eventList but its code file missing --
+  // GameMaker loads the project fine and silently treats the event as empty,
+  // which no other check can see.
+  yyp = await loadYyp(dir);
+  yyp = await addObject(dir, yyp, "objLintEvent", [{ eventType: 0, eventNum: 0 }]);
+  await writeYyp(dir, yyp);
+  await fs.rm(path.join(dir, "objects/objLintEvent/Create_0.gml"), { force: true });
+  issues = await lintProject(dir);
+  ok("lint: catches an event whose code file is missing",
+    issues.some(i => i.severity === "error" && i.message.includes("objLintEvent") && i.message.includes("Create_0")));
+  yyp = await loadYyp(dir);
+  yyp = await deleteResource(dir, yyp, "objects", "objLintEvent", true);
   await writeYyp(dir, yyp);
 
   // Corrupt 2: orphaned directory (exists on disk, not registered)

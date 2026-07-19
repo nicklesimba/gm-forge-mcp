@@ -4,6 +4,11 @@
 
 <h1 align="center">gm-forge-mcp</h1>
 
+<p align="center">
+  <a href="https://github.com/nicklesimba/gm-forge-mcp/actions/workflows/ci.yml"><img src="https://github.com/nicklesimba/gm-forge-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/nicklesimba/gm-forge-mcp" alt="License"></a>
+</p>
+
 gm-forge-mcp is an MCP server that lets an AI assistant create and edit GameMaker projects: scripts, objects, rooms, sprites, sounds, and the rest of the `.yyp` catalog. In practice that means you can ask Claude to scaffold a new project, import a folder of sprite frames, or rename an object everywhere it's referenced, and the project still opens in the IDE afterwards.
 
 > Early stage (0.1.0) - back up your project before letting anything write to it.

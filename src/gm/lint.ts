@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { parseGameMakerJson, fileExists } from "./yyp.js";
 import { readPngDimensions } from "./sprites.js";
 import { parseWavMetadata, ALLOWED_SAMPLE_RATES } from "./sounds.js";
+import { eventFileNameFromListEntry } from "./objects.js";
 import { findProjectTool } from "./gamemaker-tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -161,6 +162,26 @@ export async function lintProject(projectDir: string): Promise<LintIssue[]> {
         if (objPath && !(await safeFileExists(path.join(projectDir, objPath), issues))) {
           issues.push({ severity: "error", message: `Room "${r.id.name}" places an instance of "${inst.objectId.name}", which doesn't exist`, file: r.id.path });
         }
+      }
+    }
+  }
+
+  // 5.5 Object events whose code file is missing. GameMaker only reads
+  // <EventName>_<num>.gml (Collision_<target>.gml for collisions); an
+  // eventList entry without its file loads fine but the event is silently
+  // empty -- the worst kind of data loss, invisible to every other check.
+  for (const r of yyp.resources ?? []) {
+    if (!r.id?.path?.startsWith("objects/")) continue;
+    const obj = await safeReadYy(path.join(projectDir, r.id.path));
+    if (!obj?.eventList) continue;
+    for (const entry of obj.eventList) {
+      const expected = eventFileNameFromListEntry(entry);
+      if (!expected) {
+        issues.push({ severity: "warning", message: `Object "${r.id.name}" has an event (type ${entry.eventType}, num ${entry.eventNum}) whose code filename can't be derived -- unknown event type or missing collision target`, file: r.id.path });
+        continue;
+      }
+      if (!(await safeFileExists(path.join(projectDir, "objects", r.id.name, expected), issues))) {
+        issues.push({ severity: "error", message: `Object "${r.id.name}" declares a ${expected.replace(".gml", "")} event but ${expected} is missing -- GameMaker will treat the event as empty`, file: r.id.path });
       }
     }
   }

@@ -159,12 +159,41 @@ export async function renameResource(
     // 3. Rename the resource's own files (oldName.yy -> newName.yy,
     //    oldName.gml -> newName.gml, oldName_<type>_<num>.gml event stubs, etc.)
     for (const fileName of ownFiles) {
-      if (fileName.startsWith(oldName)) {
-        const suffix = fileName.slice(oldName.length);
+      // Collision_<ownName>.gml is a self-collision event -- its target name
+      // is the filename's suffix, not its prefix, so it needs its own case.
+      const newFileName = fileName === `Collision_${oldName}.gml`
+        ? `Collision_${newName}.gml`
+        : fileName.startsWith(oldName)
+          ? `${newName}${fileName.slice(oldName.length)}`
+          : null;
+      if (newFileName) {
         const from = path.join(oldDir, fileName);
-        const to = path.join(oldDir, `${newName}${suffix}`);
+        const to = path.join(oldDir, newFileName);
         await fs.rename(from, to);
         renamedOwnFiles.push({ from, to });
+      }
+    }
+
+    // 3.5 For objects: other objects' Collision events against this one
+    //     store the target in the FILENAME (Collision_<target>.gml), not
+    //     just in .yy content -- step 1 rewrote the content references, but
+    //     the files themselves still need renaming or GameMaker stops
+    //     reading their code.
+    if (category === "objects") {
+      const objectsRoot = path.join(projectDir, "objects");
+      let otherObjects: string[] = [];
+      try {
+        otherObjects = (await fs.readdir(objectsRoot, { withFileTypes: true }))
+          .filter(e => e.isDirectory() && e.name !== oldName)
+          .map(e => e.name);
+      } catch { /* no objects dir -- nothing referencing us by filename */ }
+      for (const other of otherObjects) {
+        const from = path.join(objectsRoot, other, `Collision_${oldName}.gml`);
+        if (await fileExists(from)) {
+          const to = path.join(objectsRoot, other, `Collision_${newName}.gml`);
+          await fs.rename(from, to);
+          renamedOwnFiles.push({ from, to });
+        }
       }
     }
 

@@ -15,8 +15,59 @@ function objectFiles(projectDir: string, name: string): ObjectFiles {
   return { dir, yyFile: path.join(dir, `${name}.yy`), catalogPath: `objects/${name}/${name}.yy` };
 }
 
-function eventFileName(objectName: string, event: EventDefinition): string {
-  return `${objectName}_${event.eventType}_${event.eventNum}.gml`;
+// GameMaker only reads event code from files named <EventName>_<num>.gml
+// (Create_0.gml, Step_1.gml, ...), with Collision using the target object's
+// name instead of a number (Collision_objPlayer.gml). Anything else is
+// silently ignored -- the eventList entry loads fine, but the event shows
+// up empty. Verified against a real project and by an Igor A/B compile
+// (invalid GML in a wrong-named file compiles "successfully"; the same file
+// under the real name fails).
+const EVENT_FILE_NAMES: Record<number, string> = {
+  0: "Create",
+  1: "Destroy",
+  2: "Alarm",
+  3: "Step",
+  4: "Collision",
+  5: "Keyboard",
+  6: "Mouse",
+  7: "Other",
+  8: "Draw",
+  9: "KeyPress",
+  10: "KeyRelease",
+  11: "Trigger",
+  12: "CleanUp",
+  13: "Gesture",
+};
+
+// For lint: derive the expected filename from an eventList entry as it
+// appears in a .yy (collision target lives in collisionObjectId there).
+// Returns null rather than throwing for entries it can't map -- lint wants
+// to report, not crash.
+export function eventFileNameFromListEntry(entry: { eventType: number; eventNum: number; collisionObjectId?: { name?: string } | null }): string | null {
+  const typeName = EVENT_FILE_NAMES[entry.eventType];
+  if (!typeName) return null;
+  if (entry.eventType === 4) {
+    return entry.collisionObjectId?.name ? `Collision_${entry.collisionObjectId.name}.gml` : null;
+  }
+  if (!Number.isInteger(entry.eventNum) || entry.eventNum < 0) return null;
+  return `${typeName}_${entry.eventNum}.gml`;
+}
+
+function eventFileName(event: EventDefinition): string {
+  const typeName = EVENT_FILE_NAMES[event.eventType];
+  if (!typeName) {
+    throw new Error(`Unknown eventType ${event.eventType} -- valid types are 0-13`);
+  }
+  if (!Number.isInteger(event.eventNum) || event.eventNum < 0) {
+    throw new Error(`Invalid eventNum ${event.eventNum} -- must be a non-negative integer`);
+  }
+  if (event.eventType === 4) {
+    if (!event.collisionTargetName) {
+      throw new Error("Collision events (eventType 4) require collisionTargetName");
+    }
+    return `Collision_${event.collisionTargetName}.gml`;
+  }
+  return `${typeName}_${event.eventNum}.gml`;
 }
 
 /**
@@ -92,6 +143,9 @@ export async function addObject(projectDir: string, yyp: Yyp, name: string, even
   validateResourceName(yyp, name);
   const files = objectFiles(projectDir, name);
 
+  // Validate every event (filename derivation throws on bad type/num/missing
+  // collision target) before anything touches disk.
+  const stubFileNames = events.map(event => eventFileName(event));
   const eventList = [];
   for (const event of events) {
     eventList.push(eventEntry(event, await resolveCollisionTarget(projectDir, event)));
@@ -99,8 +153,8 @@ export async function addObject(projectDir: string, yyp: Yyp, name: string, even
 
   await fs.mkdir(files.dir, { recursive: true });
   await fs.writeFile(files.yyFile, JSON.stringify(newObjectYy(name, eventList), null, 2), "utf8");
-  for (const event of events) {
-    await fs.writeFile(path.join(files.dir, eventFileName(name, event)), "// Event code here\n", "utf8");
+  for (const stubFileName of stubFileNames) {
+    await fs.writeFile(path.join(files.dir, stubFileName), "// Event code here\n", "utf8");
   }
 
   ensureFolder(yyp, "Objects");
@@ -132,15 +186,21 @@ export async function addObjectEvent(
   code: string = "// Event code here\n"
 ): Promise<void> {
   assertSafeResourceName(name);
+  const stubFileName = eventFileName(event);
   const files = objectFiles(projectDir, name);
   const obj = await readObjectYy(files.yyFile, name);
 
-  const duplicate = obj.eventList.some((e: any) => e.eventType === event.eventType && e.eventNum === event.eventNum);
+  // Collision events all share (type 4, num 0) legitimately -- one per
+  // target object -- so their duplicate identity is the target, not the num.
+  const duplicate = obj.eventList.some((e: any) =>
+    e.eventType === event.eventType &&
+    e.eventNum === event.eventNum &&
+    (event.eventType !== 4 || e.collisionObjectId?.name === event.collisionTargetName));
   if (duplicate) {
-    throw new Error(`Object "${name}" already has an event with type ${event.eventType}, num ${event.eventNum}`);
+    throw new Error(`Object "${name}" already has an event with type ${event.eventType}, num ${event.eventNum}${event.eventType === 4 ? ` targeting "${event.collisionTargetName}"` : ""}`);
   }
 
   obj.eventList.push(eventEntry(event, await resolveCollisionTarget(projectDir, event)));
   await fs.writeFile(files.yyFile, JSON.stringify(obj, null, 2), "utf8");
-  await fs.writeFile(path.join(files.dir, eventFileName(name, event)), code, "utf8");
+  await fs.writeFile(path.join(files.dir, stubFileName), code, "utf8");
 }

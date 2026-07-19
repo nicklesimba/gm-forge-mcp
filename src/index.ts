@@ -16,7 +16,9 @@ import {
   withProjectLock,
   addTextureGroup,
   addAudioGroup,
+  fileExists,
 } from "./gm/yyp.js";
+import path from "path";
 import { addScript, editScript } from "./gm/scripts.js";
 import { addObject, addObjectEvent } from "./gm/objects.js";
 import { addSpriteFromImages, editSprite } from "./gm/sprites.js";
@@ -32,7 +34,7 @@ import { addParticleSystem } from "./gm/particle_systems.js";
 import { addAnimCurve } from "./gm/animation_curves.js";
 import { getObjectInfo, getRoomInfo, getSpriteInfo, getScriptInfo, getShaderInfo, getSoundInfo, getFontInfo, getNoteInfo, getTilesetInfo, getExtensionInfo, getParticleSystemInfo, getAnimCurveInfo } from "./gm/introspect.js";
 import { findReferences } from "./gm/references.js";
-import { deleteResource, ResourceInUseError } from "./gm/delete.js";
+import { deleteResource } from "./gm/delete.js";
 import { renameResource } from "./gm/rename.js";
 import { lintProject } from "./gm/lint.js";
 import { compileProject } from "./gm/build.js";
@@ -192,7 +194,7 @@ const EditShaderSchema = ProjectSchema.extend({
 
 const AddSoundSchema = ProjectSchema.extend({
   soundName: z.string().describe("Name of the sound to create"),
-  sourceFile: z.string().describe("Absolute path to a .wav, .ogg, or .mp3 file to import"),
+  sourceFile: z.string().describe("Absolute path to a .wav file to import (.ogg/.mp3 are not supported yet)"),
   volume: z.number().min(0).max(1).default(1.0).describe("Playback volume (0-1)"),
   preload: z.boolean().default(true).describe("Whether to preload the sound"),
 });
@@ -781,13 +783,13 @@ const TOOLS: Tool[] = [
   },
   {
     name: "add_sound",
-    description: "Import an audio file (.wav/.ogg/.mp3) as a new sound and register it in the project",
+    description: "Import a .wav file as a new sound and register it in the project. Only .wav is supported -- metadata (sample rate, channels, bit depth) is derived from the real file, and .ogg/.mp3 parsers aren't implemented yet",
     inputSchema: {
       type: "object",
       properties: {
         projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
         soundName: { type: "string", description: "Name of the sound to create" },
-        sourceFile: { type: "string", description: "Absolute path to a .wav, .ogg, or .mp3 file to import" },
+        sourceFile: { type: "string", description: "Absolute path to a .wav file to import (.ogg/.mp3 are not supported yet)" },
         volume: { type: "number", description: "Playback volume (0-1)", default: 1.0 },
         preload: { type: "boolean", description: "Whether to preload the sound", default: true },
       },
@@ -1038,7 +1040,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "compile_project",
-    description: "Actually compile the project with GameMaker's real build tool (Igor) to catch real GML errors -- duplicate function names, syntax errors -- that structural checks like lint_project can't see. Requires the GameMaker runtime to be installed (skips gracefully with a clear message if not). Windows only.",
+    description: "Actually compile the project with GameMaker's real build tool (Igor) to catch real GML errors -- duplicate function names, syntax errors -- that structural checks like lint_project can't see. NOTE: a successful compile briefly LAUNCHES the built game (then kills it immediately), so the project's own code runs; only compile projects you trust. Requires the GameMaker runtime to be installed (skips gracefully with a clear message if not). Windows only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1080,6 +1082,19 @@ async function dispatchTool(name: string, args: unknown) {
   switch (name) {
       case "create_project": {
         const { projectDir, name: projectName } = CreateProjectSchema.parse(args);
+        // If the project already exists, leave its manifest byte-for-byte
+        // alone (a load/write round-trip isn't guaranteed to be lossless)
+        // and say so instead of claiming to have created it.
+        if (await fileExists(path.join(projectDir, `${projectName}.yyp`))) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Project "${projectName}" already exists at ${projectDir} -- left unchanged`,
+              },
+            ],
+          };
+        }
         const yyp = await ensureProjectScaffold(projectDir, projectName);
         await writeYyp(projectDir, yyp);
         return {

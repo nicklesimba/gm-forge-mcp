@@ -43,15 +43,24 @@ export const RESOURCE_VERSIONS = {
 
 const projectQueues = new Map<string, Promise<unknown>>();
 
+// Two spellings of the same directory ("C:\Foo" vs "c:/foo/") must map to
+// one queue, or the lock silently doesn't serialize them. Windows paths are
+// case-insensitive, hence the lowercasing there.
+function lockKey(projectDir: string): string {
+  const resolved = path.resolve(projectDir);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 // Serializes operations per project directory. Two calls racing a
 // loadYyp -> mutate -> writeYyp cycle would otherwise clobber each other:
 // whoever writes last wins, silently discarding the other's changes.
 // Read-only calls get queued here too since it's cheap and one less thing
 // callers have to reason about.
 export function withProjectLock<T>(projectDir: string, fn: () => Promise<T>): Promise<T> {
-  const tail = projectQueues.get(projectDir) ?? Promise.resolve();
+  const key = lockKey(projectDir);
+  const tail = projectQueues.get(key) ?? Promise.resolve();
   const result = tail.then(fn, fn);
-  projectQueues.set(projectDir, result.then(() => undefined, () => undefined));
+  projectQueues.set(key, result.then(() => undefined, () => undefined));
   return result;
 }
 
@@ -79,16 +88,19 @@ export function parseGameMakerJson(text: string): any {
  * Create a new GameMaker project scaffold if it doesn't exist
  */
 export async function ensureProjectScaffold(projectDir: string, name: string): Promise<Yyp> {
+  assertSafeProjectName(name);
   await fs.mkdir(projectDir, { recursive: true });
   const yypPath = path.join(projectDir, YYP_NAME(name));
-  
-  try {
-    const exists = await fs.stat(yypPath);
-    if (exists) {
-      return await Yy.read(yypPath, Yy.schemas.project) as Yyp;
-    }
-  } catch (error) {
-    // File doesn't exist, create new project
+
+  if (await fileExists(yypPath)) {
+    return await Yy.read(yypPath, Yy.schemas.project) as Yyp;
+  }
+
+  // A directory that already holds a DIFFERENT project must not get a second
+  // manifest -- GameMaker (and loadYyp) can't tell which one is "the" project.
+  const existingYyp = (await fs.readdir(projectDir)).find(f => f.endsWith(".yyp"));
+  if (existingYyp) {
+    throw new Error(`${projectDir} already contains a different project (${existingYyp}) -- refusing to create a second .yyp next to it`);
   }
   
   // Matches a real GameMaker-created project's top-level shape exactly
@@ -184,6 +196,22 @@ export async function writeYyp(projectDir: string, yyp: Yyp): Promise<void> {
 // name reaches path.join. Without this a name like "../../etc" walks
 // straight out of the project directory.
 const MAX_RESOURCE_NAME_LENGTH = 100;
+
+// Project names are looser than resource names (GameMaker allows spaces and
+// hyphens in them), but they still become a filename -- so path separators,
+// "..", and other filesystem-meaningful characters stay out. Without this,
+// a name like "../evil" writes a .yyp outside the project directory.
+export function assertSafeProjectName(name: string): void {
+  if (!name || name.trim().length === 0) {
+    throw new Error("Project name cannot be empty");
+  }
+  if (name.length > MAX_RESOURCE_NAME_LENGTH) {
+    throw new Error(`Project name is ${name.length} characters -- longer than the ${MAX_RESOURCE_NAME_LENGTH}-character limit`);
+  }
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_ -]*$/.test(name) || name.endsWith(" ")) {
+    throw new Error(`Invalid project name "${name}": use letters, digits, underscores, hyphens, and spaces (must not start with a space or hyphen, or end with a space)`);
+  }
+}
 
 export function assertSafeResourceName(name: string): void {
   if (!name || name.trim().length === 0) {
