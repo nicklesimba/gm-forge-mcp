@@ -1,0 +1,31 @@
+{
+  "name": "gm-forge-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Full-featured MCP server for creating and editing GameMaker projects",
+  "author": "Nikhil Simha",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "test": "tsx test/verify.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8",
+    "@bscotch/yy": "^2.6.1"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.0.0"
+  }
+}

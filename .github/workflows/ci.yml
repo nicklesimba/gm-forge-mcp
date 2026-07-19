@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # windows-latest, not ubuntu -- ProjectTool/Igor integration is Windows-only
+    # by nature (GameMaker itself). GameMaker isn't installed on this runner, so
+    # those specific checks skip gracefully (see the "skipped" count in the test
+    # summary) rather than fail; everything else runs for real.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
