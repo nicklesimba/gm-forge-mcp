@@ -12,7 +12,7 @@ npm test       # runs the regression suite
 
 New write paths need a regression test in `test/verify.ts`. The existing tests compare writer output against key-sets captured from real GameMaker files; follow that pattern instead of asserting on a few hand-picked fields. Cover the omitted/default case too, not just the fully-populated one.
 
-If you have GameMaker installed, open the affected project in the IDE after your change. If you can't, say so in the PR.
+Open the affected project in the IDE after your change. If you can't, say so in the PR.
 
 ## Code style
 
