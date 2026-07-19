@@ -4,18 +4,16 @@
 
 <h1 align="center">gm-forge-mcp</h1>
 
-<p align="center">MCP server for creating and editing GameMaker projects -- built to never break the project it's editing.</p>
+gm-forge-mcp is an MCP server that lets an AI assistant create and edit GameMaker projects: scripts, objects, rooms, sprites, sounds, and the rest of the `.yyp` catalog. In practice that means you can ask Claude to scaffold a new project, import a folder of sprite frames, or rename an object everywhere it's referenced, and the project still opens in the IDE afterwards.
 
-> Early stage (0.1.0). The write paths are tested and real-IDE-verified (see Testing below), but back up your project before pointing any tool at it, as with any early-stage software that touches your files.
+> Early stage (0.1.0) - back up your project before letting anything write to it.
 
-44 tools across 12 resource types, including: creating a working project entirely from scratch, importing sprite frames with correct per-layer source data, safe rename/delete with full reference tracking, room reordering, and two integrations with GameMaker's own official tooling -- `lint_project` runs GameMaker's headless validator (ProjectTool), and `compile_project` runs GameMaker's real compiler (Igor) to catch actual GML errors, not just structural ones.
-
-Every write path is checked against real GameMaker `.yy`/`.yyp` output. That matters because hand-editing these files wrong doesn't always fail loudly -- a room saved without a `creationCodeFile` field, or a sound whose declared sample rate doesn't match its real `.wav` header, both load "fine" until GameMaker's own validator or audio engine hits them, at which point the project can fail to open or crash outright. Both are real bugs this project ran into and now checks for automatically.
+GameMaker's file format punishes sloppy edits quietly. A room missing its `creationCodeFile` field, or a sound whose declared sample rate doesn't match the real `.wav`, can look fine right up until the IDE fails to open the project or crashes. Every writer here is modeled on files GameMaker itself produced, and two tools use GameMaker's own tooling directly: `lint_project` runs the official headless validator (ProjectTool) and `compile_project` runs the real compiler (Igor), which catches actual GML errors.
 
 ## Requirements
 
 - Node.js 20+
-- GameMaker (Windows) for `lint_project`'s ProjectTool check and for `compile_project` -- both skip gracefully with a clear message if GameMaker isn't installed. Everything else works cross-platform.
+- GameMaker (Windows) for `lint_project`'s ProjectTool check and for `compile_project`. Both skip with a clear message when GameMaker isn't installed; everything else works cross-platform.
 
 ## Install
 
@@ -71,7 +69,7 @@ Add to your MCP client config (e.g. Claude Desktop's `claude_desktop_config.json
 
 **Animation curves** -- `add_anim_curve`, `get_anim_curve_info`
 
-`delete_resource` and `rename_resource` check every reference across the whole project first, so nothing is silently orphaned or left dangling.
+`delete_resource` and `rename_resource` search the whole project for references before touching anything.
 
 ## Testing
 
@@ -79,14 +77,12 @@ Add to your MCP client config (e.g. Claude Desktop's `claude_desktop_config.json
 npm test
 ```
 
-223 regression checks against reference schemas captured from real GameMaker output, plus live integration checks against ProjectTool and Igor when they're installed (CI runs on Windows without GameMaker installed, so those specific checks skip there -- the run summary reports the skip count explicitly rather than hiding it).
-
-Beyond the automated suite, every writer has been verified against the real GameMaker IDE: resources of every supported type created (and edited) by these tools load cleanly in the actual editor, and a project built 100% from scratch by `create_project` opens and compiles without ever having been touched by the IDE first.
+The suite checks every writer's output against reference schemas captured from real GameMaker files, simulates files GameMaker has resaved (trailing commas and all), and runs live ProjectTool/Igor checks when those are installed. CI runs on a Windows runner without GameMaker, so the live checks skip there and the summary reports the skip count. Every resource type has also been loaded in the actual IDE, including a project created from scratch by `create_project`.
 
 ## See also
 
-[@petah/gamemaker-mcp](https://www.npmjs.com/package/@petah/gamemaker-mcp) -- if you need GML function/API reference lookup (not something this project covers), that's a solid tool for it.
+[@petah/gamemaker-mcp](https://www.npmjs.com/package/@petah/gamemaker-mcp) covers GML function/API reference lookup, which this project doesn't.
 
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

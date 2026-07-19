@@ -1,16 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <clipPath id="frame"><rect x="2" y="2" width="124" height="124" rx="26"/></clipPath>
+
   <rect x="2" y="2" width="124" height="124" rx="26" fill="#1A1A1A"/>
-  <rect x="2" y="2" width="124" height="124" rx="26" fill="none" stroke="#6680FF" stroke-width="2"/>
+
+  <!-- background gears -->
+  <g clip-path="url(#frame)">
+    <g transform="translate(20,24)" fill="#71B417" opacity="0.18">
+      <rect x="-3.5" y="-24" width="7" height="48"/>
+      <rect x="-3.5" y="-24" width="7" height="48" transform="rotate(45)"/>
+      <rect x="-3.5" y="-24" width="7" height="48" transform="rotate(90)"/>
+      <rect x="-3.5" y="-24" width="7" height="48" transform="rotate(135)"/>
+      <circle r="19"/>
+      <circle r="8" fill="#1A1A1A"/>
+    </g>
+    <g transform="translate(112,66) rotate(22)" fill="#71B417" opacity="0.18">
+      <rect x="-2.5" y="-17" width="5" height="34"/>
+      <rect x="-2.5" y="-17" width="5" height="34" transform="rotate(45)"/>
+      <rect x="-2.5" y="-17" width="5" height="34" transform="rotate(90)"/>
+      <rect x="-2.5" y="-17" width="5" height="34" transform="rotate(135)"/>
+      <circle r="13"/>
+      <circle r="5.5" fill="#1A1A1A"/>
+    </g>
+  </g>
+
+  <rect x="2" y="2" width="124" height="124" rx="26" fill="none" stroke="#71B417" stroke-width="2"/>
 
   <!-- spark -->
-  <g fill="#B28800">
+  <g fill="#A8E63C">
     <path d="M96 22 L100 32 L110 36 L100 40 L96 50 L92 40 L82 36 L92 32 Z"/>
     <circle cx="80" cy="52" r="3"/>
     <circle cx="104" cy="54" r="2"/>
   </g>
 
   <!-- anvil -->
-  <g fill="#6680FF">
+  <g fill="#71B417">
     <path d="M14 58 L40 50 L40 62 L92 62 L92 50 L84 46 L84 62 L98 62 L98 70 L84 70 L76 86 L100 86 L108 100 L20 100 L28 86 L52 86 L44 70 L14 70 Z"/>
   </g>
 </svg>
