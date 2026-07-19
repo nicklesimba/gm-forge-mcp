@@ -5,14 +5,14 @@
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { loadYyp, writeYyp, withProjectLock, addTextureGroup, addAudioGroup } from "../src/gm/yyp.js";
+import { loadYyp, writeYyp, withProjectLock, addTextureGroup, addAudioGroup, parseGameMakerJson, ensureProjectScaffold } from "../src/gm/yyp.js";
 import { addRoom, editRoom, reorderRoom, moveRoomRelativeTo } from "../src/gm/rooms.js";
 import { addScript, editScript } from "../src/gm/scripts.js";
 import { addObject, addObjectEvent } from "../src/gm/objects.js";
 import { addSpriteFromImages, editSprite } from "../src/gm/sprites.js";
 import { addRoomInstance } from "../src/gm/instances.js";
 import { addShader, editShader } from "../src/gm/shaders.js";
-import { addSound, editSound } from "../src/gm/sounds.js";
+import { addSound, editSound, parseOggMetadata } from "../src/gm/sounds.js";
 import { addFont, editFont } from "../src/gm/fonts.js";
 import { addTileset, editTileset } from "../src/gm/tilesets.js";
 import { addExtension } from "../src/gm/extensions.js";
@@ -1091,6 +1091,68 @@ async function main() {
   await expectThrows("reorderRoom: rejects nonexistent room", () => reorderRoom(yyp, "rmDoesNotExist", 0));
   await expectThrows("moveRoomRelativeTo: rejects nonexistent target", () => moveRoomRelativeTo(yyp, "rmOrderA", "rmDoesNotExist", "before"));
   await expectThrows("moveRoomRelativeTo: rejects moving relative to itself", () => moveRoomRelativeTo(yyp, "rmOrderA", "rmOrderA", "before"));
+
+  // --- Ogg Vorbis support: metadata always parsed from the real file, same
+  // contract as WAV (the declared-vs-real mismatch crashed GameMaker once) ---
+  const oggMeta = await parseOggMetadata(path.join(process.cwd(), "test/fixtures/beep.ogg"));
+  ok("ogg: real sample rate parsed from Vorbis id header", oggMeta.sampleRate === 44100, String(oggMeta.sampleRate));
+  ok("ogg: real channel count parsed", oggMeta.channels === 1, String(oggMeta.channels));
+  ok("ogg: duration derived from final granule position", oggMeta.durationSeconds > 0.2 && oggMeta.durationSeconds < 0.4, String(oggMeta.durationSeconds));
+
+  yyp = await loadYyp(dir);
+  yyp = await addSound(dir, yyp, "sndOggTest", path.join(process.cwd(), "test/fixtures/beep.ogg"));
+  await writeYyp(dir, yyp);
+  const oggYy = JSON.parse(await fs.readFile(path.join(dir, "sounds/sndOggTest/sndOggTest.yy"), "utf8"));
+  ok("ogg: compression is 1 (Compressed, per @bscotch/yy's SoundCompression enum)", oggYy.compression === 1);
+  ok("ogg: declared sampleRate matches the real file", oggYy.sampleRate === 44100);
+  ok("ogg: declared channelFormat matches the real file (mono)", oggYy.channelFormat === 0);
+  ok("ogg: audio file copied into the project", await fileExists(path.join(dir, "sounds/sndOggTest/sndOggTest.ogg")));
+  ok("ogg: schema keys match the wav sound schema", keysMatchRef(oggYy, REF.sound));
+
+  await expectThrows("ogg: rejects unsupported sample rate (8000Hz)",
+    () => addSound(dir, yyp, "sndOggBadRate", path.join(process.cwd(), "test/fixtures/badrate.ogg")));
+  await expectThrows("addSound: still rejects .mp3",
+    () => addSound(dir, yyp, "sndMp3", "C:/nonexistent/file.mp3"));
+
+  // lint cross-checks ogg metadata the same way it does wav
+  const oggYyPath = path.join(dir, "sounds/sndOggTest/sndOggTest.yy");
+  const oggTampered = JSON.parse(await fs.readFile(oggYyPath, "utf8"));
+  const oggRealRate = oggTampered.sampleRate;
+  oggTampered.sampleRate = 22050;
+  await fs.writeFile(oggYyPath, JSON.stringify(oggTampered, null, 2), "utf8");
+  const oggIssues = await lintProject(dir);
+  ok("lint: catches ogg sampleRate mismatch", oggIssues.some(i => i.severity === "error" && i.message.includes("sndOggTest") && i.message.includes("sampleRate")));
+  oggTampered.sampleRate = oggRealRate;
+  await fs.writeFile(oggYyPath, JSON.stringify(oggTampered, null, 2), "utf8");
+
+  // --- parseGameMakerJson: trailing commas stripped WITHOUT corrupting
+  // string values that legitimately contain ",]" or ",}" ---
+  const trickyJson = '{\n  "label": "a,]b,}c",\n  "items": [1, 2,],\n}';
+  const trickyParsed = parseGameMakerJson(trickyJson);
+  ok("parseGameMakerJson: trailing commas stripped", Array.isArray(trickyParsed.items) && trickyParsed.items.length === 2);
+  ok("parseGameMakerJson: ',]' inside a string value survives untouched", trickyParsed.label === "a,]b,}c");
+
+  // --- editScript: whitespace-only append gets a clear refusal, not a
+  // confusing duplicate-code error ---
+  await expectThrows("editScript: refuses whitespace-only append", () => editScript(dir, "scrTest", "   \n  ", "append"));
+
+  // --- collisionTargetName only means something on Collision events ---
+  await expectThrows("events: collisionTargetName rejected on a non-collision event",
+    () => addObjectEvent(dir, "objTest", { eventType: 3, eventNum: 2, collisionTargetName: "objTest" }));
+
+  // --- loadYyp: a directory with two .yyp files is ambiguous, not pick-first ---
+  const twinDir = path.join(os.tmpdir(), `gm-forge-twin-${Date.now()}`);
+  await fs.mkdir(twinDir, { recursive: true });
+  await fs.writeFile(path.join(twinDir, "one.yyp"), "{}", "utf8");
+  await fs.writeFile(path.join(twinDir, "two.yyp"), "{}", "utf8");
+  await expectThrows("loadYyp: refuses a directory with two .yyp files", () => loadYyp(twinDir));
+  await fs.rm(twinDir, { recursive: true, force: true });
+
+  // --- create_project safety: traversal-shaped and empty project names ---
+  await expectThrows("ensureProjectScaffold: rejects a path-traversal project name",
+    () => ensureProjectScaffold(twinDir, "../evil"));
+  await expectThrows("ensureProjectScaffold: rejects an empty project name",
+    () => ensureProjectScaffold(twinDir, ""));
 
   await fs.rm(dir, { recursive: true, force: true });
 

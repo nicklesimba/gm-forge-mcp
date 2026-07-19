@@ -8,6 +8,7 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 import {
   loadYyp,
@@ -194,7 +195,7 @@ const EditShaderSchema = ProjectSchema.extend({
 
 const AddSoundSchema = ProjectSchema.extend({
   soundName: z.string().describe("Name of the sound to create"),
-  sourceFile: z.string().describe("Absolute path to a .wav file to import (.ogg/.mp3 are not supported yet)"),
+  sourceFile: z.string().describe("Absolute path to a .wav or .ogg (Vorbis) file to import (.mp3 is not supported yet)"),
   volume: z.number().min(0).max(1).default(1.0).describe("Playback volume (0-1)"),
   preload: z.boolean().default(true).describe("Whether to preload the sound"),
 });
@@ -316,759 +317,73 @@ const server = new Server(
   }
 );
 
-// Tool definitions
-const TOOLS: Tool[] = [
-  {
-    name: "create_project",
-    description: "Create a new GameMaker YYP project at the specified directory if it does not exist",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        name: {
-          type: "string",
-          description: "Project name for the YYP",
-        },
-      },
-      required: ["projectDir", "name"],
-    },
-  },
-  {
-    name: "add_texture_group",
-    description: "Create a new, additional texture group in the project (beyond the default one auto-provisioned for sprites/fonts)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        groupName: { type: "string", description: "Name of the new texture group to create" },
-      },
-      required: ["projectDir", "groupName"],
-    },
-  },
-  {
-    name: "add_audio_group",
-    description: "Create a new, additional audio group in the project (beyond the default one auto-provisioned for sounds)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        groupName: { type: "string", description: "Name of the new audio group to create" },
-      },
-      required: ["projectDir", "groupName"],
-    },
-  },
-  {
-    name: "add_script",
-    description: "Create a new GML script and register it in the YYP",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        scriptName: {
-          type: "string",
-          description: "Name of the script to create",
-        },
-        code: {
-          type: "string",
-          description: "GML code for the script",
-          default: "// TODO",
-        },
-      },
-      required: ["projectDir", "scriptName"],
-    },
-  },
-  {
-    name: "edit_script",
-    description: "Edit an existing script's GML code, either replacing it entirely or appending to it",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        scriptName: {
-          type: "string",
-          description: "Name of the existing script to edit",
-        },
-        code: {
-          type: "string",
-          description: "GML code to write",
-        },
-        mode: {
-          type: "string",
-          enum: ["replace", "append"],
-          description: "replace overwrites the whole file; append adds to the end",
-          default: "append",
-        },
-      },
-      required: ["projectDir", "scriptName", "code"],
-    },
-  },
-  {
-    name: "add_object",
-    description: "Create a GameMaker object .yy file with optional event stubs and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        objectName: {
-          type: "string",
-          description: "Name of the object to create",
-        },
-        events: {
-          type: "array",
-          description: "Array of event definitions to create",
-          items: {
-            type: "object",
-            properties: {
-              eventType: {
-                type: "number",
-                description: EVENT_TYPE_DESCRIPTION,
-              },
-              eventNum: {
-                type: "number",
-                description: EVENT_NUM_DESCRIPTION,
-              },
-              collisionTargetName: {
-                type: "string",
-                description: "For Collision events (eventType 4) only: name of the existing object this collides with",
-              },
-            },
-            required: ["eventType", "eventNum"],
-          },
-          default: [],
-        },
-      },
-      required: ["projectDir", "objectName"],
-    },
-  },
-  {
-    name: "add_object_event",
-    description: "Add a new event to an existing object, with its own GML code",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        objectName: {
-          type: "string",
-          description: "Name of the existing object to add an event to",
-        },
-        eventType: {
-          type: "number",
-          description: EVENT_TYPE_DESCRIPTION,
-        },
-        eventNum: {
-          type: "number",
-          description: EVENT_NUM_DESCRIPTION,
-        },
-        collisionTargetName: {
-          type: "string",
-          description: "For Collision events (eventType 4) only: name of the existing object this collides with",
-        },
-        code: {
-          type: "string",
-          description: "GML code for the new event",
-          default: "// Event code here\n",
-        },
-      },
-      required: ["projectDir", "objectName", "eventType", "eventNum"],
-    },
-  },
-  {
-    name: "add_sprite_from_images",
-    description: "Import frames from a directory into a new sprite and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        spriteName: {
-          type: "string",
-          description: "Name of the sprite to create",
-        },
-        framesDir: {
-          type: "string",
-          description: "Directory containing PNG frames",
-        },
-      },
-      required: ["projectDir", "spriteName", "framesDir"],
-    },
-  },
-  {
-    name: "add_room",
-    description: "Create a GameMaker room with default instance and background layers, register it in the project and room order",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        roomName: {
-          type: "string",
-          description: "Name of the room to create",
-        },
-        width: {
-          type: "number",
-          description: "Room width in pixels",
-          default: 1366,
-        },
-        height: {
-          type: "number",
-          description: "Room height in pixels",
-          default: 768,
-        },
-        persistent: {
-          type: "boolean",
-          description: "Whether the room is persistent",
-          default: false,
-        },
-        creationCode: {
-          type: "string",
-          description: "GML room creation code",
-        },
-      },
-      required: ["projectDir", "roomName"],
-    },
-  },
-  {
-    name: "edit_room",
-    description: "Edit an existing room's width, height, and/or persistent flag",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        roomName: {
-          type: "string",
-          description: "Name of the existing room to edit",
-        },
-        width: {
-          type: "number",
-          description: "New room width in pixels",
-        },
-        height: {
-          type: "number",
-          description: "New room height in pixels",
-        },
-        persistent: {
-          type: "boolean",
-          description: "New persistent flag",
-        },
-      },
-      required: ["projectDir", "roomName"],
-    },
-  },
-  {
-    name: "add_room_instance",
-    description: "Place an instance of an existing object into an existing room at a given position",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        roomName: {
-          type: "string",
-          description: "Name of the existing room to place the instance into",
-        },
-        objectName: {
-          type: "string",
-          description: "Name of the existing object to place",
-        },
-        x: {
-          type: "number",
-          description: "X position in the room",
-        },
-        y: {
-          type: "number",
-          description: "Y position in the room",
-        },
-        rotation: {
-          type: "number",
-          description: "Instance rotation in degrees",
-          default: 0,
-        },
-        scaleX: {
-          type: "number",
-          description: "Horizontal scale",
-          default: 1.0,
-        },
-        scaleY: {
-          type: "number",
-          description: "Vertical scale",
-          default: 1.0,
-        },
-      },
-      required: ["projectDir", "roomName", "objectName", "x", "y"],
-    },
-  },
-  {
-    name: "reorder_room",
-    description: "Move a room to an absolute position in the game's room order (what room_goto_next/previous follow at runtime)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        roomName: { type: "string", description: "Name of the room to move" },
-        newIndex: { type: "number", description: "New 0-based position in the room order" },
-      },
-      required: ["projectDir", "roomName", "newIndex"],
-    },
-  },
-  {
-    name: "move_room_relative",
-    description: "Move a room immediately before or after another named room in the room order",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        roomName: { type: "string", description: "Name of the room to move" },
-        targetRoomName: { type: "string", description: "Room to position it relative to" },
-        position: { type: "string", enum: ["before", "after"], description: "Whether to place it before or after the target room" },
-      },
-      required: ["projectDir", "roomName", "targetRoomName", "position"],
-    },
-  },
-  {
-    name: "add_note",
-    description: "Create a new Notes resource (plain-text project documentation, never compiled into the game) and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        noteName: { type: "string", description: "Name of the note to create" },
-        content: { type: "string", description: "Plain-text content of the note", default: "" },
-      },
-      required: ["projectDir", "noteName"],
-    },
-  },
-  {
-    name: "get_note_info",
-    description: "Get an existing note's content",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        noteName: { type: "string", description: "Name of the note to inspect" },
-      },
-      required: ["projectDir", "noteName"],
-    },
-  },
-  {
-    name: "get_object_info",
-    description: "Get detailed info about an existing object: sprite, parent, physics, and its full event list with human-readable event names",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        objectName: { type: "string", description: "Name of the object to inspect" },
-      },
-      required: ["projectDir", "objectName"],
-    },
-  },
-  {
-    name: "get_room_info",
-    description: "Get detailed info about an existing room: dimensions, persistence, layers, and every placed instance with its position",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        roomName: { type: "string", description: "Name of the room to inspect" },
-      },
-      required: ["projectDir", "roomName"],
-    },
-  },
-  {
-    name: "get_sprite_info",
-    description: "Get detailed info about an existing sprite: real dimensions, frame count, origin, collision settings",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        spriteName: { type: "string", description: "Name of the sprite to inspect" },
-      },
-      required: ["projectDir", "spriteName"],
-    },
-  },
-  {
-    name: "edit_sprite",
-    description: "Edit an existing sprite's origin, collision kind, and/or bounding box -- not its frame data",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        spriteName: { type: "string", description: "Name of the existing sprite to edit" },
-        xorigin: { type: "number", description: "New origin X coordinate in pixels (also sets the origin preset to Custom)" },
-        yorigin: { type: "number", description: "New origin Y coordinate in pixels (also sets the origin preset to Custom)" },
-        collisionKind: { type: "number", description: "New collision mask kind (0=Precise, 1=Rectangle, 2=Ellipse, 3=Diamond, ...)" },
-        bboxMode: { type: "number", description: "New bounding box mode (0=Automatic, 1=Full Image, 2=Manual)" },
-        bbox_left: { type: "number", description: "New bounding box left edge (used when bboxMode=2)" },
-        bbox_top: { type: "number", description: "New bounding box top edge (used when bboxMode=2)" },
-        bbox_right: { type: "number", description: "New bounding box right edge (used when bboxMode=2)" },
-        bbox_bottom: { type: "number", description: "New bounding box bottom edge (used when bboxMode=2)" },
-      },
-      required: ["projectDir", "spriteName"],
-    },
-  },
-  {
-    name: "get_script_info",
-    description: "Get an existing script's current GML code",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        scriptName: { type: "string", description: "Name of the script to inspect" },
-      },
-      required: ["projectDir", "scriptName"],
-    },
-  },
-  {
-    name: "add_shader",
-    description: "Create a new vertex+fragment shader pair (GLSL ES) and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        shaderName: { type: "string", description: "Name of the shader to create" },
-        vertexCode: { type: "string", description: "Vertex shader GLSL ES code (defaults to a passthrough shader)" },
-        fragmentCode: { type: "string", description: "Fragment shader GLSL ES code (defaults to a passthrough shader)" },
-      },
-      required: ["projectDir", "shaderName"],
-    },
-  },
-  {
-    name: "get_shader_info",
-    description: "Get an existing shader's vertex and fragment code",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        shaderName: { type: "string", description: "Name of the shader to inspect" },
-      },
-      required: ["projectDir", "shaderName"],
-    },
-  },
-  {
-    name: "edit_shader",
-    description: "Edit an existing shader's vertex and/or fragment code",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        shaderName: { type: "string", description: "Name of the existing shader to edit" },
-        vertexCode: { type: "string", description: "New vertex shader GLSL ES code" },
-        fragmentCode: { type: "string", description: "New fragment shader GLSL ES code" },
-      },
-      required: ["projectDir", "shaderName"],
-    },
-  },
-  {
-    name: "add_sound",
-    description: "Import a .wav file as a new sound and register it in the project. Only .wav is supported -- metadata (sample rate, channels, bit depth) is derived from the real file, and .ogg/.mp3 parsers aren't implemented yet",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        soundName: { type: "string", description: "Name of the sound to create" },
-        sourceFile: { type: "string", description: "Absolute path to a .wav file to import (.ogg/.mp3 are not supported yet)" },
-        volume: { type: "number", description: "Playback volume (0-1)", default: 1.0 },
-        preload: { type: "boolean", description: "Whether to preload the sound", default: true },
-      },
-      required: ["projectDir", "soundName", "sourceFile"],
-    },
-  },
-  {
-    name: "get_sound_info",
-    description: "Get an existing sound's file, volume, and playback settings",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        soundName: { type: "string", description: "Name of the sound to inspect" },
-      },
-      required: ["projectDir", "soundName"],
-    },
-  },
-  {
-    name: "edit_sound",
-    description: "Edit an existing sound's volume and/or preload flag (not its audio metadata, which is always derived from the real file)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        soundName: { type: "string", description: "Name of the existing sound to edit" },
-        volume: { type: "number", description: "New playback volume (0-1)" },
-        preload: { type: "boolean", description: "New preload flag" },
-      },
-      required: ["projectDir", "soundName"],
-    },
-  },
-  {
-    name: "add_font",
-    description: "Create a new font referencing an installed system font by name and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        fontName: { type: "string", description: "Name of the font to create" },
-        systemFontName: { type: "string", description: "Name of an installed system font (e.g. \"Arial\")" },
-        size: { type: "number", description: "Font size in points", default: 12 },
-        bold: { type: "boolean", description: "Bold style", default: false },
-        italic: { type: "boolean", description: "Italic style", default: false },
-      },
-      required: ["projectDir", "fontName", "systemFontName"],
-    },
-  },
-  {
-    name: "get_font_info",
-    description: "Get an existing font's system font name, size, and style",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        fontName: { type: "string", description: "Name of the font to inspect" },
-      },
-      required: ["projectDir", "fontName"],
-    },
-  },
-  {
-    name: "edit_font",
-    description: "Edit an existing font's system font name, size, and/or style",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        fontName: { type: "string", description: "Name of the existing font to edit" },
-        systemFontName: { type: "string", description: "New installed system font name" },
-        size: { type: "number", description: "New font size in points" },
-        bold: { type: "boolean", description: "New bold style" },
-        italic: { type: "boolean", description: "New italic style" },
-      },
-      required: ["projectDir", "fontName"],
-    },
-  },
-  {
-    name: "add_tileset",
-    description: "Create a new tile set from an existing sprite (add the sprite first with add_sprite_from_images) and register it in the project. Column/row/tile counts are computed from the sprite's real dimensions.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        tilesetName: { type: "string", description: "Name of the tile set to create" },
-        spriteName: { type: "string", description: "Name of an existing sprite to use as the tile source image (add one first with add_sprite_from_images)" },
-        tileWidth: { type: "number", description: "Width of one tile in pixels" },
-        tileHeight: { type: "number", description: "Height of one tile in pixels" },
-        tilehsep: { type: "number", description: "Horizontal spacing between tiles in the source sprite, in pixels", default: 0 },
-        tilevsep: { type: "number", description: "Vertical spacing between tiles in the source sprite, in pixels", default: 0 },
-        tilexoff: { type: "number", description: "Horizontal offset from the left edge of the source sprite before the first tile, in pixels", default: 0 },
-        tileyoff: { type: "number", description: "Vertical offset from the top edge of the source sprite before the first tile, in pixels", default: 0 },
-      },
-      required: ["projectDir", "tilesetName", "spriteName", "tileWidth", "tileHeight"],
-    },
-  },
-  {
-    name: "get_tileset_info",
-    description: "Get an existing tile set's source sprite, tile dimensions, and tile count",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        tilesetName: { type: "string", description: "Name of the tile set to inspect" },
-      },
-      required: ["projectDir", "tilesetName"],
-    },
-  },
-  {
-    name: "edit_tileset",
-    description: "Edit an existing tile set's dimensions, spacing, or offset -- column/tile counts are recomputed from the real source sprite",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        tilesetName: { type: "string", description: "Name of the existing tile set to edit" },
-        tileWidth: { type: "number", description: "New tile width in pixels" },
-        tileHeight: { type: "number", description: "New tile height in pixels" },
-        tilehsep: { type: "number", description: "New horizontal spacing between tiles, in pixels" },
-        tilevsep: { type: "number", description: "New vertical spacing between tiles, in pixels" },
-        tilexoff: { type: "number", description: "New horizontal offset before the first tile, in pixels" },
-        tileyoff: { type: "number", description: "New vertical offset before the first tile, in pixels" },
-      },
-      required: ["projectDir", "tilesetName"],
-    },
-  },
-  {
-    name: "add_extension",
-    description: "Create a new, empty extension shell (matches File > New Extension before any functions/constants/files are added in the IDE) and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        extensionName: { type: "string", description: "Name of the extension to create" },
-      },
-      required: ["projectDir", "extensionName"],
-    },
-  },
-  {
-    name: "get_extension_info",
-    description: "Get an existing extension's version and file count",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        extensionName: { type: "string", description: "Name of the extension to inspect" },
-      },
-      required: ["projectDir", "extensionName"],
-    },
-  },
-  {
-    name: "add_particle_system",
-    description: "Create a new particle system with one default emitter and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        particleSystemName: { type: "string", description: "Name of the particle system to create" },
-      },
-      required: ["projectDir", "particleSystemName"],
-    },
-  },
-  {
-    name: "get_particle_system_info",
-    description: "Get an existing particle system's emitter count and names",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        particleSystemName: { type: "string", description: "Name of the particle system to inspect" },
-      },
-      required: ["projectDir", "particleSystemName"],
-    },
-  },
-  {
-    name: "add_anim_curve",
-    description: "Create a new animation curve with one straight-line channel from (0,0) to (1,1) and register it in the project",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        animCurveName: { type: "string", description: "Name of the animation curve to create" },
-      },
-      required: ["projectDir", "animCurveName"],
-    },
-  },
-  {
-    name: "get_anim_curve_info",
-    description: "Get an existing animation curve's channel count, names, and point counts",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        animCurveName: { type: "string", description: "Name of the animation curve to inspect" },
-      },
-      required: ["projectDir", "animCurveName"],
-    },
-  },
-  {
-    name: "find_references",
-    description: "Find every place a resource is referenced across the whole project (rooms placing instances, other objects parenting to it, GML code calling it, etc.) -- use before deleting or renaming anything",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        resourceName: { type: "string", description: "Name of the resource to search for references to" },
-      },
-      required: ["projectDir", "resourceName"],
-    },
-  },
-  {
-    name: "delete_resource",
-    description: "Delete an existing resource. Refuses if it's still referenced elsewhere in the project unless force=true",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        category: { type: "string", enum: ["rooms", "objects", "scripts", "sprites", "shaders", "sounds", "fonts", "notes", "tilesets", "extensions", "particles", "animcurves"], description: "Resource category" },
-        resourceName: { type: "string", description: "Name of the resource to delete" },
-        force: { type: "boolean", description: "Delete even if still referenced elsewhere in the project", default: false },
-      },
-      required: ["projectDir", "category", "resourceName"],
-    },
-  },
-  {
-    name: "rename_resource",
-    description: "Rename an existing resource, rewriting every reference to it across the whole project (other resources' name/path references, GML code) so nothing is left dangling",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-        category: { type: "string", enum: ["rooms", "objects", "scripts", "sprites", "shaders", "sounds", "fonts", "notes", "tilesets", "extensions", "particles", "animcurves"], description: "Resource category" },
-        oldName: { type: "string", description: "Current name of the resource" },
-        newName: { type: "string", description: "New name for the resource" },
-      },
-      required: ["projectDir", "category", "oldName", "newName"],
-    },
-  },
-  {
-    name: "lint_project",
-    description: "Validate a whole project for dangling references, orphaned resources, missing folder registrations, and sound/sprite metadata that doesn't match the real underlying file -- run this before trusting a project is safe to open",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-      },
-      required: ["projectDir"],
-    },
-  },
-  {
-    name: "compile_project",
-    description: "Actually compile the project with GameMaker's real build tool (Igor) to catch real GML errors -- duplicate function names, syntax errors -- that structural checks like lint_project can't see. NOTE: a successful compile briefly LAUNCHES the built game (then kills it immediately), so the project's own code runs; only compile projects you trust. Requires the GameMaker runtime to be installed (skips gracefully with a clear message if not). Windows only.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: { type: "string", description: "Absolute path to the GameMaker project directory" },
-      },
-      required: ["projectDir"],
-    },
-  },
-  {
-    name: "list_resources",
-    description: "List resource names by type from the YYP file",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectDir: {
-          type: "string",
-          description: "Absolute path to the GameMaker project directory",
-        },
-        kind: {
-          type: "string",
-          enum: ["rooms", "objects", "scripts", "sprites", "shaders", "sounds", "fonts", "notes", "tilesets", "extensions", "particles", "animcurves"],
-          description: "Type of resources to list (optional)",
-        },
-      },
-      required: ["projectDir"],
-    },
-  },
+// Single source of truth for every tool: the same zod schema that parses
+// arguments at dispatch time also generates the MCP inputSchema. The
+// previous hand-written JSON copies drifted from the zod definitions once
+// (add_sound advertising formats the parser rejects), so they're gone.
+interface ToolDef {
+  name: string;
+  description: string;
+  schema: z.ZodType;
+}
+
+const TOOL_DEFS: ToolDef[] = [
+  { name: "create_project", description: "Create a new GameMaker YYP project at the specified directory if it does not exist", schema: CreateProjectSchema },
+  { name: "add_texture_group", description: "Create a new, additional texture group in the project (beyond the default one auto-provisioned for sprites/fonts)", schema: AddTextureGroupSchema },
+  { name: "add_audio_group", description: "Create a new, additional audio group in the project (beyond the default one auto-provisioned for sounds)", schema: AddAudioGroupSchema },
+  { name: "add_script", description: "Create a new GML script and register it in the YYP", schema: AddScriptSchema },
+  { name: "edit_script", description: "Edit an existing script's GML code, either replacing it entirely or appending to it", schema: EditScriptSchema },
+  { name: "add_object", description: "Create a GameMaker object .yy file with optional event stubs and register it in the project", schema: AddObjectSchema },
+  { name: "add_object_event", description: "Add a new event to an existing object, with its own GML code", schema: AddObjectEventSchema },
+  { name: "add_sprite_from_images", description: "Import frames from a directory into a new sprite and register it in the project", schema: AddSpriteSchema },
+  { name: "add_room", description: "Create a GameMaker room with default instance and background layers, register it in the project and room order", schema: AddRoomSchema },
+  { name: "edit_room", description: "Edit an existing room's width, height, and/or persistent flag", schema: EditRoomSchema },
+  { name: "add_room_instance", description: "Place an instance of an existing object into an existing room at a given position", schema: AddRoomInstanceSchema },
+  { name: "reorder_room", description: "Move a room to an absolute position in the game's room order (what room_goto_next/previous follow at runtime)", schema: ReorderRoomSchema },
+  { name: "move_room_relative", description: "Move a room immediately before or after another named room in the room order", schema: MoveRoomRelativeSchema },
+  { name: "add_note", description: "Create a new Notes resource (plain-text project documentation, never compiled into the game) and register it in the project", schema: AddNoteSchema },
+  { name: "get_note_info", description: "Get an existing note's content", schema: GetNoteInfoSchema },
+  { name: "get_object_info", description: "Get detailed info about an existing object: sprite, parent, physics, and its full event list with human-readable event names", schema: GetObjectInfoSchema },
+  { name: "get_room_info", description: "Get detailed info about an existing room: dimensions, persistence, layers, and every placed instance with its position", schema: GetRoomInfoSchema },
+  { name: "get_sprite_info", description: "Get detailed info about an existing sprite: real dimensions, frame count, origin, collision settings", schema: GetSpriteInfoSchema },
+  { name: "edit_sprite", description: "Edit an existing sprite's origin, collision kind, and/or bounding box -- not its frame data", schema: EditSpriteSchema },
+  { name: "get_script_info", description: "Get an existing script's current GML code", schema: GetScriptInfoSchema },
+  { name: "add_shader", description: "Create a new vertex+fragment shader pair (GLSL ES) and register it in the project", schema: AddShaderSchema },
+  { name: "get_shader_info", description: "Get an existing shader's vertex and fragment code", schema: GetShaderInfoSchema },
+  { name: "edit_shader", description: "Edit an existing shader's vertex and/or fragment code", schema: EditShaderSchema },
+  { name: "add_sound", description: "Import a .wav or .ogg (Vorbis) file as a new sound and register it in the project. Metadata (sample rate, channels, duration) is derived from the real file; .mp3 isn't supported yet", schema: AddSoundSchema },
+  { name: "get_sound_info", description: "Get an existing sound's file, volume, and playback settings", schema: GetSoundInfoSchema },
+  { name: "edit_sound", description: "Edit an existing sound's volume and/or preload flag (not its audio metadata, which is always derived from the real file)", schema: EditSoundSchema },
+  { name: "add_font", description: "Create a new font referencing an installed system font by name and register it in the project", schema: AddFontSchema },
+  { name: "get_font_info", description: "Get an existing font's system font name, size, and style", schema: GetFontInfoSchema },
+  { name: "edit_font", description: "Edit an existing font's system font name, size, and/or style", schema: EditFontSchema },
+  { name: "add_tileset", description: "Create a new tile set from an existing sprite (add the sprite first with add_sprite_from_images) and register it in the project. Column/row/tile counts are computed from the sprite's real dimensions.", schema: AddTilesetSchema },
+  { name: "get_tileset_info", description: "Get an existing tile set's source sprite, tile dimensions, and tile count", schema: GetTilesetInfoSchema },
+  { name: "edit_tileset", description: "Edit an existing tile set's dimensions, spacing, or offset -- column/tile counts are recomputed from the real source sprite", schema: EditTilesetSchema },
+  { name: "add_extension", description: "Create a new, empty extension shell (matches File > New Extension before any functions/constants/files are added in the IDE) and register it in the project", schema: AddExtensionSchema },
+  { name: "get_extension_info", description: "Get an existing extension's version and file count", schema: GetExtensionInfoSchema },
+  { name: "add_particle_system", description: "Create a new particle system with one default emitter and register it in the project", schema: AddParticleSystemSchema },
+  { name: "get_particle_system_info", description: "Get an existing particle system's emitter count and names", schema: GetParticleSystemInfoSchema },
+  { name: "add_anim_curve", description: "Create a new animation curve with one straight-line channel from (0,0) to (1,1) and register it in the project", schema: AddAnimCurveSchema },
+  { name: "get_anim_curve_info", description: "Get an existing animation curve's channel count, names, and point counts", schema: GetAnimCurveInfoSchema },
+  { name: "find_references", description: "Find every place a resource is referenced across the whole project (rooms placing instances, other objects parenting to it, GML code calling it, etc.) -- use before deleting or renaming anything", schema: FindReferencesSchema },
+  { name: "delete_resource", description: "Delete an existing resource. Refuses if it's still referenced elsewhere in the project unless force=true", schema: DeleteResourceSchema },
+  { name: "rename_resource", description: "Rename an existing resource, rewriting every reference to it across the whole project (other resources' name/path references, GML code) so nothing is left dangling", schema: RenameResourceSchema },
+  { name: "lint_project", description: "Validate a whole project for dangling references, orphaned resources, missing folder registrations, missing event code files, and sound/sprite metadata that doesn't match the real underlying file -- run this before trusting a project is safe to open", schema: ProjectSchema },
+  { name: "compile_project", description: "Actually compile the project with GameMaker's real build tool (Igor) to catch real GML errors -- duplicate function names, syntax errors -- that structural checks like lint_project can't see. NOTE: a successful compile briefly LAUNCHES the built game (then kills it immediately), so the project's own code runs; only compile projects you trust. Requires the GameMaker runtime to be installed (skips gracefully with a clear message if not). Windows only.", schema: ProjectSchema },
+  { name: "list_resources", description: "List resource names by type from the YYP file", schema: ListResourcesSchema },
 ];
+
+function toInputSchema(schema: z.ZodType): Tool["inputSchema"] {
+  const { $schema: _dropped, ...json } = zodToJsonSchema(schema) as Record<string, unknown>;
+  return json as Tool["inputSchema"];
+}
+
+const TOOLS: Tool[] = TOOL_DEFS.map(d => ({
+  name: d.name,
+  description: d.description,
+  inputSchema: toInputSchema(d.schema),
+}));
 
 // List tools handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {

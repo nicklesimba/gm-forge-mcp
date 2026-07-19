@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { parseGameMakerJson, fileExists } from "./yyp.js";
 import { readPngDimensions } from "./sprites.js";
-import { parseWavMetadata, ALLOWED_SAMPLE_RATES } from "./sounds.js";
+import { parseWavMetadata, parseOggMetadata, ALLOWED_SAMPLE_RATES } from "./sounds.js";
 import { eventFileNameFromListEntry } from "./objects.js";
 import { findProjectTool } from "./gamemaker-tools.js";
 
@@ -211,6 +211,19 @@ export async function lintProject(projectDir: string): Promise<LintIssue[]> {
         }
       } catch {
         issues.push({ severity: "warning", message: `Sound "${r.id.name}"'s audio file couldn't be parsed as a valid WAV`, file: r.id.path });
+      }
+    } else if (path.extname(sound.soundFile).toLowerCase() === ".ogg") {
+      try {
+        const meta = await parseOggMetadata(soundFilePath);
+        if (meta.sampleRate !== sound.sampleRate) {
+          issues.push({ severity: "error", message: `Sound "${r.id.name}" declares sampleRate ${sound.sampleRate}Hz but the real file is ${meta.sampleRate}Hz -- this mismatch can crash GameMaker's audio engine on load`, file: r.id.path });
+        }
+        const realChannelFormat = meta.channels === 2 ? 1 : 0;
+        if (sound.channelFormat !== realChannelFormat) {
+          issues.push({ severity: "error", message: `Sound "${r.id.name}" declares channelFormat ${sound.channelFormat} but the real file has ${meta.channels} channel(s)`, file: r.id.path });
+        }
+      } catch {
+        issues.push({ severity: "warning", message: `Sound "${r.id.name}"'s audio file couldn't be parsed as valid Ogg Vorbis`, file: r.id.path });
       }
     }
   }

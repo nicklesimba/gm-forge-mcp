@@ -79,9 +79,37 @@ export async function fileExists(p: string): Promise<boolean> {
 // For reading a resource's own .yy (room/object/script/sprite -- the
 // project .yyp itself goes through Yy.read instead). GameMaker resaves
 // files with trailing commas, which plain JSON.parse rejects, so strip
-// those first.
+// those first. The stripping is string-aware: a "," followed by "]" or "}"
+// INSIDE a quoted value (a note title, a description) is real content, and
+// a naive regex would corrupt it.
 export function parseGameMakerJson(text: string): any {
-  return JSON.parse(text.replace(/,\s*([\]}])/g, "$1"));
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (ch === "\\") {
+        i++;
+        if (i < text.length) out += text[i];
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] === "]" || text[j] === "}") continue; // trailing comma -- drop it
+    }
+    out += ch;
+  }
+  return JSON.parse(out);
 }
 
 /**
@@ -164,13 +192,16 @@ export async function ensureProjectScaffold(projectDir: string, name: string): P
  */
 export async function loadYyp(projectDir: string): Promise<Yyp> {
   const files = await fs.readdir(projectDir);
-  const yypPath = files.find((f: string) => f.endsWith(".yyp"));
-  
-  if (!yypPath) {
+  const yypFiles = files.filter((f: string) => f.endsWith(".yyp"));
+
+  if (yypFiles.length === 0) {
     throw new Error(`No .yyp found in ${projectDir}`);
   }
-  
-  const fullPath = path.join(projectDir, yypPath);
+  if (yypFiles.length > 1) {
+    throw new Error(`${projectDir} contains ${yypFiles.length} .yyp files (${yypFiles.join(", ")}) -- can't tell which is the project; remove the extra one`);
+  }
+
+  const fullPath = path.join(projectDir, yypFiles[0]);
   return await Yy.read(fullPath, Yy.schemas.project) as Yyp;
 }
 
@@ -281,7 +312,7 @@ export function ensureAudioGroup(yyp: Yyp, name: string = "audiogroup_default"):
       name,
       resourceType: "GMAudioGroup",
       resourceVersion: RESOURCE_VERSIONS.audioGroup,
-      targets: -1
+      targets: BigInt(-1)
     });
     (yyp as any).AudioGroups = groups;
   }
@@ -302,7 +333,7 @@ export function ensureTextureGroup(yyp: Yyp, name: string = "Default"): void {
       border: 2,
       mipsToGenerate: 0,
       groupParent: null,
-      targets: -1,
+      targets: BigInt(-1),
       resourceVersion: RESOURCE_VERSIONS.textureGroup,
       name,
       resourceType: "GMTextureGroup",

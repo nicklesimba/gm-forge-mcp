@@ -77,6 +77,9 @@ export async function editScript(
     return;
   }
 
+  if (code.trim().length === 0) {
+    throw new Error(`Refusing to append empty/whitespace-only code to "${name}" -- use mode "replace" if you meant to clear it`);
+  }
   const current = await fs.readFile(gmlFile, "utf8");
   if (current.includes(code.trim())) {
     throw new Error(`Script "${name}" already contains this exact code -- refusing to append a duplicate. Use mode "replace" if this is intentional.`);

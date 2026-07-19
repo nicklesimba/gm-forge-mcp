@@ -78,6 +78,9 @@ function eventFileName(event: EventDefinition): string {
  */
 async function resolveCollisionTarget(projectDir: string, event: EventDefinition): Promise<{ name: string; path: string } | null> {
   if (!event.collisionTargetName) return null;
+  if (event.eventType !== 4) {
+    throw new Error(`collisionTargetName is only valid for Collision events (eventType 4), got eventType ${event.eventType}`);
+  }
   assertSafeResourceName(event.collisionTargetName);
   const targetYyFile = objectFiles(projectDir, event.collisionTargetName).yyFile;
   if (!(await fileExists(targetYyFile))) {

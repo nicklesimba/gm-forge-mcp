@@ -88,8 +88,18 @@ export async function getSpriteInfo(projectDir: string, spriteName: string) {
 export async function getShaderInfo(projectDir: string, shaderName: string) {
   const shader = await readResourceYy(projectDir, "shaders", shaderName);
   const dir = path.join(projectDir, "shaders", shaderName);
-  const vertexCode = await fs.readFile(path.join(dir, `${shaderName}.vsh`), "utf8");
-  const fragmentCode = await fs.readFile(path.join(dir, `${shaderName}.fsh`), "utf8");
+  const readStage = async (file: string) => {
+    try {
+      return await fs.readFile(path.join(dir, file), "utf8");
+    } catch (e: any) {
+      if (e.code === "ENOENT") {
+        throw new Error(`Shader "${shaderName}" is missing its ${file} stage file`);
+      }
+      throw new Error(`Failed to read shader "${shaderName}" stage ${file}: ${e.message}`);
+    }
+  };
+  const vertexCode = await readStage(`${shaderName}.vsh`);
+  const fragmentCode = await readStage(`${shaderName}.fsh`);
   return { name: shader.name, type: shader.type, vertexCode, fragmentCode };
 }
 
@@ -153,7 +163,7 @@ export async function getFontInfo(projectDir: string, fontName: string) {
     size: font.size,
     bold: font.bold,
     italic: font.italic,
-    glyphCount: Object.keys(font.glyphs).length,
+    glyphCount: Object.keys(font.glyphs ?? {}).length,
   };
 }
 
