@@ -88,7 +88,8 @@ The suite checks every writer's output against reference schemas captured from r
 
 [GameMaker](https://gamemaker.io) is required to use any of this. Thanks to YoYo Games for making game-making more accessible for two decades and counting!
 
-[@petah/gamemaker-mcp](https://www.npmjs.com/package/@petah/gamemaker-mcp) covers GML function/API reference lookup, which this project doesn't.
+[@petah/gamemaker-mcp](https://www.npmjs.com/package/@petah/gamemaker-mcp)  <img width="40" height="37" alt="image" src="https://github.com/user-attachments/assets/a8f0c4ef-8906-4135-a292-0aeb87856579" />
+covers GML function/API reference lookup, which this project doesn't.
 
 ## License
 
