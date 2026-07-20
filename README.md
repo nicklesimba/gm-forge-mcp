@@ -86,6 +86,8 @@ The suite checks every writer's output against reference schemas captured from r
 
 ## See also
 
+[GameMaker](https://gamemaker.io) -- the engine behind all of this; YoYo Games has kept it genuinely approachable for solo devs for two decades.
+
 [@petah/gamemaker-mcp](https://www.npmjs.com/package/@petah/gamemaker-mcp) covers GML function/API reference lookup, which this project doesn't.
 
 ## License
