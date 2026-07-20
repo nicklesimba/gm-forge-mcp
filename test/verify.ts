@@ -15,6 +15,7 @@ import { addShader, editShader } from "../src/gm/shaders.js";
 import { addSound, editSound, parseOggMetadata } from "../src/gm/sounds.js";
 import { addFont, editFont } from "../src/gm/fonts.js";
 import { addTileset, editTileset } from "../src/gm/tilesets.js";
+import { decompressTileData, getRoomTileLayers, findTileRegion, EMPTY_TILE } from "../src/gm/room_tiles.js";
 import { addExtension } from "../src/gm/extensions.js";
 import { addParticleSystem } from "../src/gm/particle_systems.js";
 import { addAnimCurve } from "../src/gm/animation_curves.js";
@@ -1153,6 +1154,85 @@ async function main() {
     () => ensureProjectScaffold(twinDir, "../evil"));
   await expectThrows("ensureProjectScaffold: rejects an empty project name",
     () => ensureProjectScaffold(twinDir, ""));
+
+  // --- Tile layer decoding: entirely synthetic data, deliberately NOT drawn
+  // from any real project's assets (this is a public repo). The RLE scheme
+  // (positive N = next N literal values; negative N = repeat next value N
+  // times) was reverse-engineered and confirmed against real GameMaker output
+  // before this was written; these fixtures just pin that behavior down. ---
+  ok("decompressTileData: literal runs and repeat runs both decode correctly",
+    JSON.stringify(decompressTileData([-5, EMPTY_TILE, 2, 5, 5, -2, EMPTY_TILE, 2, 5, 5, -1, EMPTY_TILE]))
+      === JSON.stringify([EMPTY_TILE, EMPTY_TILE, EMPTY_TILE, EMPTY_TILE, EMPTY_TILE, 5, 5, EMPTY_TILE, EMPTY_TILE, 5, 5, EMPTY_TILE]));
+
+  yyp = await loadYyp(dir);
+  yyp = await addSpriteFromImages(dir, yyp, "sprTileLayerTest", framesDir);
+  await writeYyp(dir, yyp);
+  yyp = await loadYyp(dir);
+  yyp = await addTileset(dir, yyp, "tsTileLayerTest", "sprTileLayerTest", 8, 8);
+  await writeYyp(dir, yyp);
+  yyp = await loadYyp(dir);
+  yyp = await addRoom(dir, yyp, "rmTileTest", { width: 200, height: 200, persistent: false });
+  await writeYyp(dir, yyp);
+  const tileRoomPath = path.join(dir, "rooms/rmTileTest/rmTileTest.yy");
+  const tileRoom = JSON.parse(await fs.readFile(tileRoomPath, "utf8"));
+  tileRoom.layers.push(
+    // References a dedicated test tileset (tileWidth/tileHeight = 8x8).
+    // gridX/gridY here is deliberately set to a DIFFERENT value (32) than the
+    // tileset's real tile size -- if the code wrongly used the layer's own
+    // gridX/gridY instead of the tileset's, this test would catch it.
+    {
+      resourceType: "GMRTileLayer", name: "TilesLinked", "%Name": "TilesLinked",
+      tilesetId: { name: "tsTileLayerTest", path: "tilesets/tsTileLayerTest/tsTileLayerTest.yy" },
+      x: 0, y: 0, gridX: 32, gridY: 32, depth: 0, layers: [],
+      tiles: {
+        SerialiseWidth: 4, SerialiseHeight: 3, TileDataFormat: 1,
+        TileCompressedData: [-5, EMPTY_TILE, 2, 5, 5, -2, EMPTY_TILE, 2, 5, 5, -1, EMPTY_TILE],
+      },
+    },
+    // No tilesetId at all -- must fall back to the layer's own gridX/gridY.
+    {
+      resourceType: "GMRTileLayer", name: "TilesNoTileset", "%Name": "TilesNoTileset",
+      tilesetId: null,
+      x: 0, y: 0, gridX: 8, gridY: 8, depth: 10, layers: [],
+      tiles: {
+        SerialiseWidth: 2, SerialiseHeight: 2, TileDataFormat: 1,
+        TileCompressedData: [4, 9, 9, 9, 9],
+      },
+    },
+  );
+  await fs.writeFile(tileRoomPath, JSON.stringify(tileRoom, null, 2), "utf8");
+
+  const tileLayers = await getRoomTileLayers(dir, "rmTileTest");
+  const linked = tileLayers.find(l => l.layerName === "TilesLinked")!;
+  ok("getRoomTileLayers: tile size comes from the referenced tileset, not the layer's own gridX/gridY",
+    linked.tileWidth === 8 && linked.tileHeight === 8);
+  ok("getRoomTileLayers: decoded grid dimensions match SerialiseWidth/SerialiseHeight",
+    linked.grid.length === 3 && linked.grid[0].length === 4);
+
+  const noTileset = tileLayers.find(l => l.layerName === "TilesNoTileset")!;
+  ok("getRoomTileLayers: falls back to the layer's own gridX/gridY when there's no tileset",
+    noTileset.tileWidth === 8 && noTileset.tileHeight === 8);
+
+  // Inside the 2x2 solid block (rows 1-2, cols 1-2 in the 4x3 grid) at 8px tiles: world (12,12)
+  const inside = findTileRegion(tileLayers, 12, 12);
+  const insideLinked = inside.find(r => r.layerName === "TilesLinked")!;
+  ok("findTileRegion: query point inside the block is occupied", insideLinked.occupied === true);
+  ok("findTileRegion: reports the real tile value", insideLinked.tileValue === 5);
+  ok("findTileRegion: bounding box matches the real 2x2 block in world coordinates",
+    JSON.stringify(insideLinked.bbox) === JSON.stringify({ x0: 8, y0: 8, x1: 24, y1: 24}),
+    JSON.stringify(insideLinked.bbox));
+  ok("findTileRegion: tile count matches the flood-filled region size", insideLinked.tileCount === 4);
+
+  // Just outside the block (world 2,2 -> row 0, col 0 -> empty)
+  const outside = findTileRegion(tileLayers, 2, 2);
+  ok("findTileRegion: query point outside the block is not occupied",
+    outside.find(r => r.layerName === "TilesLinked")!.occupied === false);
+
+  const noTilesetRegion = findTileRegion(tileLayers, 4, 4).find(r => r.layerName === "TilesNoTileset")!;
+  ok("findTileRegion: fully-solid no-tileset layer reports the whole grid as one region",
+    noTilesetRegion.occupied === true && noTilesetRegion.tileCount === 4);
+
+  await expectThrows("getRoomTileLayers: rejects a nonexistent room", () => getRoomTileLayers(dir, "rmDoesNotExist"));
 
   await fs.rm(dir, { recursive: true, force: true });
 

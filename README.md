@@ -54,7 +54,7 @@ Add to your MCP client config (e.g. Claude Desktop's `claude_desktop_config.json
 
 **Objects** -- `add_object`, `add_object_event`, `get_object_info`
 
-**Rooms** -- `add_room`, `edit_room`, `add_room_instance`, `reorder_room`, `move_room_relative`, `get_room_info`
+**Rooms** -- `add_room`, `edit_room`, `add_room_instance`, `reorder_room`, `move_room_relative`, `get_room_info`, `find_tile_region`
 
 **Sprites** -- `add_sprite_from_images`, `edit_sprite`, `get_sprite_info`
 

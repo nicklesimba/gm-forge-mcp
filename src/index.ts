@@ -39,6 +39,7 @@ import { deleteResource } from "./gm/delete.js";
 import { renameResource } from "./gm/rename.js";
 import { lintProject } from "./gm/lint.js";
 import { compileProject } from "./gm/build.js";
+import { getRoomTileLayers, findTileRegion } from "./gm/room_tiles.js";
 
 // Schema definitions
 const EVENT_TYPE_DESCRIPTION =
@@ -279,6 +280,12 @@ const GetAnimCurveInfoSchema = ProjectSchema.extend({
   animCurveName: z.string().describe("Name of the animation curve to inspect"),
 });
 
+const FindTileRegionSchema = ProjectSchema.extend({
+  roomName: z.string().describe("Name of the room to inspect"),
+  x: z.number().describe("World X coordinate to query"),
+  y: z.number().describe("World Y coordinate to query"),
+});
+
 const ResourceCategoryEnum = z.enum(["rooms", "objects", "scripts", "sprites", "shaders", "sounds", "fonts", "notes", "tilesets", "extensions", "particles", "animcurves"]);
 
 const FindReferencesSchema = ProjectSchema.extend({
@@ -345,6 +352,7 @@ const TOOL_DEFS: ToolDef[] = [
   { name: "get_note_info", description: "Get an existing note's content", schema: GetNoteInfoSchema },
   { name: "get_object_info", description: "Get detailed info about an existing object: sprite, parent, physics, and its full event list with human-readable event names", schema: GetObjectInfoSchema },
   { name: "get_room_info", description: "Get detailed info about an existing room: dimensions, persistence, layers, and every placed instance with its position", schema: GetRoomInfoSchema },
+  { name: "find_tile_region", description: "Check whether a world point in a room sits on a real tile, decoding GameMaker's compressed tile layer data (invisible to get_room_info's instance list). If occupied, reports the connected region of tiles it belongs to -- use this to confirm a spot is actually inside tile-drawn geometry (a building, a floor) before placing something there, not just clear of instances.", schema: FindTileRegionSchema },
   { name: "get_sprite_info", description: "Get detailed info about an existing sprite: real dimensions, frame count, origin, collision settings", schema: GetSpriteInfoSchema },
   { name: "edit_sprite", description: "Edit an existing sprite's origin, collision kind, and/or bounding box -- not its frame data", schema: EditSpriteSchema },
   { name: "get_script_info", description: "Get an existing script's current GML code", schema: GetScriptInfoSchema },
@@ -594,6 +602,13 @@ async function dispatchTool(name: string, args: unknown) {
         const { projectDir, roomName } = GetRoomInfoSchema.parse(args);
         const info = await getRoomInfo(projectDir, roomName);
         return { content: [{ type: "text", text: JSON.stringify(info, null, 2) }] };
+      }
+
+      case "find_tile_region": {
+        const { projectDir, roomName, x, y } = FindTileRegionSchema.parse(args);
+        const layers = await getRoomTileLayers(projectDir, roomName);
+        const results = findTileRegion(layers, x, y);
+        return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
       }
 
       case "get_sprite_info": {
